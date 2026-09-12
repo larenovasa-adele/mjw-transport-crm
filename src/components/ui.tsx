@@ -97,7 +97,10 @@ export function Modal({
 }) {
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+    // z-[2000]: Leaflet's own map controls/panes use z-index up to 1000, which
+    // would otherwise show through a lower-z-index modal (e.g. on the Tracker
+    // page). This keeps every modal above any map on the page.
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/40 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">{title}</h2>

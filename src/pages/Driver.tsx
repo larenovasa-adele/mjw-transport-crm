@@ -212,7 +212,7 @@ function CaptureSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 sm:items-center">
+    <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-slate-900/40 sm:items-center">
       <div className="w-full max-w-md rounded-t-2xl bg-white p-5 sm:rounded-2xl">
         <h2 className="mb-4 text-lg font-semibold text-slate-900">
           {stage === 'start' ? 'Start trip' : 'End trip'} — dashboard photo
