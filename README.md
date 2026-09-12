@@ -104,11 +104,70 @@ supabase/
   seed/          Sample data (optional, for demoing before real data exists)
 ```
 
-## 8. Known gaps / suggested next steps
+## 8. Sage import/export
 
-- No per-role permissions yet (any logged-in user can edit anything).
+There's no live connection to Sage — that turned out not to be straightforward either way:
+
+- **Sage Pastel Partner** (the desktop product) has no API at all, only manual CSV file
+  import/export inside Pastel itself.
+- **Sage Business Cloud Accounting** (the online product) does have an API, but it runs on its
+  own older, South-Africa-specific system, and getting API access means contacting Sage's API
+  team directly rather than self-service signup — not something to depend on for a first version.
+
+So for now this is CSV-based, which works regardless of which Sage product MJW ends up using:
+
+- **Finances → Invoices** and **Finances → Expenses** each have an "Export CSV (for Sage)"
+  button. Invoices export one row per line item (invoice number, dates, customer, description,
+  quantity, unit price, line total, invoice VAT/total) — the most common layout for Sage's batch
+  invoice import. Column names may need a small tweak in Excel to match your exact Sage import
+  template before importing.
+- **Clients → Import CSV** lets you upload any CSV (e.g. a customer list exported from Sage) and
+  map its columns to the CRM's client fields — it doesn't assume a fixed column layout, since
+  Sage's export format depends on which product and version you're using. **Clients → Export
+  CSV** does the reverse (all clients, one row each).
+
+If MJW ends up on Sage Business Cloud Accounting and you want a live, no-CSV connection later,
+that would mean requesting API access from Sage and building a proper sync — a bigger job than
+this CSV round-trip.
+
+## 9. Driver mobile login + dashboard photo
+
+Drivers log in on their own phone (in the browser — no app to install) and get a simplified
+mobile page instead of the full CRM: their active trips, a "Start trip" / "End trip" button that
+opens the phone's camera, and a place to enter the odometer reading. The photo and reading are
+saved to the trip record and show up in the CRM.
+
+**How a driver's login gets linked to their staff record:** by email match — there's no separate
+login-linking step in the UI. To set up a driver:
+
+1. In Supabase, **Authentication → Users → Add user** — same as step 4 above — using the exact
+   email address you want that driver to log in with.
+2. In the CRM's **Staff** page, make sure that driver's staff record has that *same* email address
+   (edit it if the seed data placeholder `.example` email is still there).
+3. That's it — when they log in with that email, the app matches it to their staff record and
+   sends them to the driver page automatically (anyone whose staff role isn't `driver` still gets
+   the full CRM).
+
+Photos upload to a Supabase Storage bucket called `trip-photos` (created by
+`supabase/migrations/0002_driver_photos.sql` — run that migration the same way you ran the first
+one, in the SQL Editor). The bucket is public so photos display via a plain URL; only signed-in
+users can upload to it.
+
+Note: like the rest of the app, this doesn't yet stop a driver from opening the browser's address
+bar and typing in a full-CRM URL directly — every logged-in user still has full database access
+(see the gaps list below). The driver page is a UI convenience, not a security boundary, until
+proper per-role permissions are added.
+
+## 10. Known gaps / suggested next steps
+
+- No per-role permissions yet (any logged-in user, including a driver, can read/write anything in
+  the database directly — the driver mobile page is a UI convenience, not an access restriction).
 - No PDF export for quotes/invoices — they're viewable in-app only.
 - No password-reset self-service flow for staff.
 - Tracker map defaults to Paarl until real positions exist.
 - Consider moving telematics API credentials into Supabase Vault or Edge Function secrets rather
   than a plain table, before connecting a real provider.
+- Driver photo uploads aren't compressed before upload — fine on Wi-Fi, could be slow on a weak
+  mobile signal. Worth revisiting if that turns out to be a problem in practice.
+- No offline support on the driver page — if a driver has no signal when starting/ending a trip,
+  the upload will fail and they'll need to retry once they have signal again.

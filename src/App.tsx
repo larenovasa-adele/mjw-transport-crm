@@ -11,28 +11,31 @@ import Tracker from './pages/Tracker'
 import Clients from './pages/Clients'
 import Finances from './pages/Finances'
 import Settings from './pages/Settings'
+import Driver from './pages/Driver'
 
-function RequireAuth({ children }: { children: ReactNode }) {
-  const { session, loading } = useAuth()
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading…</div>
-    )
-  }
+function LoadingScreen() {
+  return <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading…</div>
+}
+
+/**
+ * `allowDriver=false` routes (the full CRM) bounce a driver-role login to
+ * /driver instead — drivers get the mobile trip/photo page, not the full
+ * back-office UI. Every other role passes straight through.
+ */
+function RequireAuth({ children, allowDriver = true }: { children: ReactNode; allowDriver?: boolean }) {
+  const { session, loading, staff, staffLoading } = useAuth()
+  if (loading || (session && staffLoading)) return <LoadingScreen />
   if (!session) return <Navigate to="/login" replace />
+  if (!allowDriver && staff?.role === 'driver') return <Navigate to="/driver" replace />
   return <>{children}</>
 }
 
 function LoginRoute() {
-  const { session, loading } = useAuth()
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading…</div>
-    )
-  }
+  const { session, loading, staff, staffLoading } = useAuth()
+  if (loading || (session && staffLoading)) return <LoadingScreen />
   // Already signed in (e.g. just completed sign-in, or an existing session was
   // restored on load) — leave the login page instead of sitting on it forever.
-  if (session) return <Navigate to="/" replace />
+  if (session) return <Navigate to={staff?.role === 'driver' ? '/driver' : '/'} replace />
   return <Login />
 }
 
@@ -41,8 +44,16 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
       <Route
+        path="/driver"
         element={
           <RequireAuth>
+            <Driver />
+          </RequireAuth>
+        }
+      />
+      <Route
+        element={
+          <RequireAuth allowDriver={false}>
             <Layout />
           </RequireAuth>
         }

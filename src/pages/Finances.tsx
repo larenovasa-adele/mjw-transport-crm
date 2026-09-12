@@ -2,7 +2,16 @@ import { useState, type FormEvent } from 'react'
 import { useTable } from '../lib/useTable'
 import { supabase } from '../lib/supabase'
 import { computeTotals, emptyLineItem, formatZAR, VAT_RATE, type DraftLineItem } from '../lib/lineItems'
-import type { Client, Expense, ExpenseCategory, Invoice, Quote, Route, Vehicle } from '../lib/types'
+import type {
+  Client,
+  Expense,
+  ExpenseCategory,
+  Invoice,
+  InvoiceLineItem,
+  Quote,
+  Route,
+  Vehicle,
+} from '../lib/types'
 import {
   Badge,
   Button,
@@ -15,6 +24,7 @@ import {
   Modal,
   PageHeader,
 } from '../components/ui'
+import { buildCsv, downloadCsv } from '../lib/csv'
 import { format, parseISO } from 'date-fns'
 
 type Tab = 'quotes' | 'invoices' | 'expenses'
@@ -282,6 +292,7 @@ function InvoicesTab() {
   const { rows: invoices, loading, error, refetch, update } = useTable<Invoice>('invoices', 'issue_date', false)
   const { rows: clients } = useTable<Client>('clients', 'company_name', true)
   const { rows: routes } = useTable<Route>('routes', 'scheduled_date', false)
+  const { rows: lineItems } = useTable<InvoiceLineItem>('invoice_line_items', 'id', true)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [clientId, setClientId] = useState('')
@@ -359,9 +370,64 @@ function InvoicesTab() {
     await update(invoice.id, { status: 'paid', paid_at: format(new Date(), 'yyyy-MM-dd') } as Partial<Invoice>)
   }
 
+  function handleExportCsv() {
+    // One row per line item — the layout most Sage batch-invoice import
+    // templates expect. Column names/order may need a small tweak to match
+    // your specific Sage import template, but the data is all here.
+    const rows: (string | number | null)[][] = []
+    for (const inv of invoices) {
+      const items = lineItems.filter((li) => li.invoice_id === inv.id)
+      const client = clients.find((c) => c.id === inv.client_id)
+      const base = [
+        inv.invoice_number,
+        inv.issue_date,
+        inv.due_date,
+        client?.company_name ?? '',
+        client?.vat_number ?? '',
+        inv.status,
+      ]
+      if (items.length === 0) {
+        rows.push([...base, '', 1, Number(inv.subtotal), Number(inv.subtotal), Number(inv.vat_amount), Number(inv.total)])
+      } else {
+        for (const li of items) {
+          rows.push([
+            ...base,
+            li.description,
+            Number(li.quantity),
+            Number(li.unit_price),
+            Number(li.line_total),
+            Number(inv.vat_amount),
+            Number(inv.total),
+          ])
+        }
+      }
+    }
+    const csv = buildCsv(
+      [
+        'Invoice number',
+        'Issue date',
+        'Due date',
+        'Customer',
+        'Customer VAT number',
+        'Status',
+        'Description',
+        'Quantity',
+        'Unit price',
+        'Line total',
+        'Invoice VAT amount',
+        'Invoice total',
+      ],
+      rows,
+    )
+    downloadCsv('mjw-invoices.csv', csv)
+  }
+
   return (
     <div>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex justify-end gap-2">
+        <Button variant="secondary" onClick={handleExportCsv}>
+          Export CSV (for Sage)
+        </Button>
         <Button onClick={() => setModalOpen(true)}>New invoice</Button>
       </div>
 
@@ -513,13 +579,33 @@ function ExpensesTab() {
     await remove(expense.id)
   }
 
+  function handleExportCsv() {
+    const csv = buildCsv(
+      ['Date', 'Category', 'Vehicle', 'Description', 'Amount', 'Odometer (km)'],
+      expenses.map((e) => [
+        e.expense_date,
+        e.category,
+        vehicleReg(e.vehicle_id),
+        e.description,
+        Number(e.amount),
+        e.odometer_km,
+      ]),
+    )
+    downloadCsv('mjw-expenses.csv', csv)
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-slate-600">
           This month: <span className="font-semibold text-slate-900">{formatZAR(totalThisMonth)}</span>
         </p>
-        <Button onClick={() => setModalOpen(true)}>Log expense</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={handleExportCsv}>
+            Export CSV (for Sage)
+          </Button>
+          <Button onClick={() => setModalOpen(true)}>Log expense</Button>
+        </div>
       </div>
 
       {loading && <LoadingState />}

@@ -116,6 +116,8 @@ export interface Trip {
   end_location: string | null
   status: TripStatus
   notes: string | null
+  start_photo_url: string | null
+  end_photo_url: string | null
   created_at: string
   updated_at: string
 }

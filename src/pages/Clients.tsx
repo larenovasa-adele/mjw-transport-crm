@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useTable } from '../lib/useTable'
+import { supabase } from '../lib/supabase'
 import type { Client } from '../lib/types'
 import {
   Button,
@@ -12,6 +13,17 @@ import {
   Modal,
   PageHeader,
 } from '../components/ui'
+import { CsvImportModal, type CsvField } from '../components/CsvImport'
+import { buildCsv, downloadCsv } from '../lib/csv'
+
+const CLIENT_CSV_FIELDS: CsvField[] = [
+  { key: 'company_name', label: 'Company name', required: true },
+  { key: 'contact_name', label: 'Contact name' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'email', label: 'Email' },
+  { key: 'billing_address', label: 'Billing address' },
+  { key: 'vat_number', label: 'VAT number' },
+]
 
 const emptyForm = {
   company_name: '',
@@ -24,13 +36,14 @@ const emptyForm = {
 }
 
 export default function Clients() {
-  const { rows: clients, loading, error, insert, update, remove } = useTable<Client>(
+  const { rows: clients, loading, error, insert, update, remove, refetch } = useTable<Client>(
     'clients',
     'company_name',
     true,
   )
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [editing, setEditing] = useState<Client | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -87,12 +100,48 @@ export default function Clients() {
     await remove(client.id)
   }
 
+  function handleExportCsv() {
+    const csv = buildCsv(
+      ['Company name', 'Contact name', 'Phone', 'Email', 'Billing address', 'VAT number'],
+      clients.map((c) => [c.company_name, c.contact_name, c.phone, c.email, c.billing_address, c.vat_number]),
+    )
+    downloadCsv('mjw-clients.csv', csv)
+  }
+
+  async function handleImportCsv(rows: Record<string, string>[]) {
+    const validRows = rows.filter((r) => r.company_name.trim())
+    if (validRows.length === 0) return { error: 'No rows had a company name — nothing to import.' }
+    const { error } = await supabase.from('clients').insert(
+      validRows.map((r) => ({
+        company_name: r.company_name.trim(),
+        contact_name: r.contact_name || null,
+        phone: r.phone || null,
+        email: r.email || null,
+        billing_address: r.billing_address || null,
+        vat_number: r.vat_number || null,
+      })) as never,
+    )
+    if (error) return { error: error.message }
+    await refetch()
+    return { error: null, count: validRows.length }
+  }
+
   return (
     <div>
       <PageHeader
         title="Clients"
         subtitle="Companies MJW Transport moves freight for"
-        action={<Button onClick={openCreate}>Add client</Button>}
+        action={
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              Import CSV
+            </Button>
+            <Button variant="secondary" onClick={handleExportCsv}>
+              Export CSV
+            </Button>
+            <Button onClick={openCreate}>Add client</Button>
+          </div>
+        }
       />
 
       {loading && <LoadingState />}
@@ -216,6 +265,14 @@ export default function Clients() {
           </div>
         </form>
       </Modal>
+
+      <CsvImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import clients from CSV"
+        fields={CLIENT_CSV_FIELDS}
+        onImport={handleImportCsv}
+      />
     </div>
   )
 }
