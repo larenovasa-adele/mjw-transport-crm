@@ -27,6 +27,7 @@ const emptyForm = {
   drivers_license_expiry: '',
   pdp_expiry: '',
   hire_date: '',
+  monthly_salary: '',
   notes: '',
 }
 
@@ -62,6 +63,7 @@ export default function Staff() {
       drivers_license_expiry: member.drivers_license_expiry ?? '',
       pdp_expiry: member.pdp_expiry ?? '',
       hire_date: member.hire_date ?? '',
+      monthly_salary: member.monthly_salary?.toString() ?? '',
       notes: member.notes ?? '',
     })
     setFormError(null)
@@ -83,6 +85,7 @@ export default function Staff() {
       drivers_license_expiry: form.drivers_license_expiry || null,
       pdp_expiry: form.pdp_expiry || null,
       hire_date: form.hire_date || null,
+      monthly_salary: form.monthly_salary ? Number(form.monthly_salary) : null,
       notes: form.notes || null,
     }
 
@@ -262,6 +265,14 @@ export default function Staff() {
               />
             </Field>
           </div>
+          <Field label="Monthly salary (ZAR, optional)">
+            <input
+              className={inputClass}
+              value={form.monthly_salary}
+              onChange={(e) => setForm({ ...form, monthly_salary: e.target.value })}
+              placeholder="e.g. 12000"
+            />
+          </Field>
           <Field label="Notes">
             <textarea
               className={inputClass}

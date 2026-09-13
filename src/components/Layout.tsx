@@ -5,11 +5,13 @@ import { useAuth } from '../context/AuthContext'
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/fleet', label: 'Fleet' },
+  { to: '/tyres', label: 'Tyres' },
   { to: '/staff', label: 'Staff' },
   { to: '/routes', label: 'Routes' },
   { to: '/tracker', label: 'Tracker' },
   { to: '/clients', label: 'Clients' },
   { to: '/finances', label: 'Finances' },
+  { to: '/reports', label: 'Reports' },
   { to: '/settings', label: 'Settings' },
 ]
 

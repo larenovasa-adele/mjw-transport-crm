@@ -6,6 +6,7 @@ import type {
   Client,
   Expense,
   ExpenseCategory,
+  FuelLog,
   Invoice,
   InvoiceLineItem,
   Quote,
@@ -27,17 +28,17 @@ import {
 import { buildCsv, downloadCsv } from '../lib/csv'
 import { format, parseISO } from 'date-fns'
 
-type Tab = 'quotes' | 'invoices' | 'expenses'
+type Tab = 'quotes' | 'invoices' | 'expenses' | 'fuel'
 
 export default function Finances() {
   const [tab, setTab] = useState<Tab>('invoices')
 
   return (
     <div>
-      <PageHeader title="Finances" subtitle="Quotes, invoices, and expenses" />
+      <PageHeader title="Finances" subtitle="Quotes, invoices, expenses, and fuel" />
 
       <div className="mb-4 flex gap-1 rounded-lg bg-slate-200/60 p-1 text-sm font-medium sm:w-fit">
-        {(['invoices', 'quotes', 'expenses'] as Tab[]).map((t) => (
+        {(['invoices', 'quotes', 'expenses', 'fuel'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -51,6 +52,7 @@ export default function Finances() {
       {tab === 'invoices' && <InvoicesTab />}
       {tab === 'quotes' && <QuotesTab />}
       {tab === 'expenses' && <ExpensesTab />}
+      {tab === 'fuel' && <FuelTab />}
     </div>
   )
 }
@@ -723,6 +725,209 @@ function ExpensesTab() {
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? 'Saving…' : 'Log expense'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Fuel — litre + odometer based fill-up logging, separate from the generic
+// "fuel" expense category so km/L efficiency and an accurate fuel cost-per-km
+// can be calculated on the Reports page. Log fill-ups here going forward
+// rather than as a generic expense, to avoid double-counting fuel costs.
+// ---------------------------------------------------------------------------
+const emptyFuelForm = {
+  vehicle_id: '',
+  filled_at: format(new Date(), 'yyyy-MM-dd'),
+  odometer_km: '',
+  litres: '',
+  cost: '',
+  full_tank: true,
+}
+
+function FuelTab() {
+  const { rows: logs, loading, error, insert, remove } = useTable<FuelLog>('fuel_logs', 'filled_at', false)
+  const { rows: vehicles } = useTable<Vehicle>('vehicles', 'registration_number', true)
+
+  const [modalOpen, setModalOpen] = useState(false)
+  const [form, setForm] = useState(emptyFuelForm)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const vehicleReg = (id: string) => vehicles.find((v) => v.id === id)?.registration_number ?? '—'
+  const totalThisMonth = logs
+    .filter((l) => l.filled_at.startsWith(format(new Date(), 'yyyy-MM')))
+    .reduce((sum, l) => sum + Number(l.cost), 0)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!form.vehicle_id || !form.litres || !form.cost) {
+      setFormError('Vehicle, litres, and cost are required.')
+      return
+    }
+    setSaving(true)
+    setFormError(null)
+    const result = await insert({
+      vehicle_id: form.vehicle_id,
+      filled_at: form.filled_at,
+      odometer_km: form.odometer_km ? Number(form.odometer_km) : null,
+      litres: Number(form.litres),
+      cost: Number(form.cost),
+      full_tank: form.full_tank,
+    } as Partial<FuelLog>)
+    setSaving(false)
+    if (result.error) {
+      setFormError(result.error)
+      return
+    }
+    setForm(emptyFuelForm)
+    setModalOpen(false)
+  }
+
+  async function handleDelete(log: FuelLog) {
+    if (!confirm('Delete this fuel log?')) return
+    await remove(log.id)
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-slate-600">
+          This month: <span className="font-semibold text-slate-900">{formatZAR(totalThisMonth)}</span>
+        </p>
+        <Button onClick={() => setModalOpen(true)}>Log fill-up</Button>
+      </div>
+
+      <Card className="mb-4 border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+        Log fill-ups here (not as a generic expense) so the Reports page can calculate km/L efficiency and an
+        accurate fuel cost per km. Mark "full tank" when you filled to the top — that's what makes the km/L
+        calculation between fill-ups meaningful.
+      </Card>
+
+      {loading && <LoadingState />}
+      {error && <ErrorState message={error} />}
+
+      {!loading && !error && (
+        <Card>
+          {logs.length === 0 ? (
+            <EmptyState message="No fuel fill-ups logged yet." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3">Vehicle</th>
+                    <th className="px-5 py-3">Odometer</th>
+                    <th className="px-5 py-3">Litres</th>
+                    <th className="px-5 py-3">Cost</th>
+                    <th className="px-5 py-3">R/litre</th>
+                    <th className="px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {logs.map((log) => (
+                    <tr key={log.id}>
+                      <td className="px-5 py-3 text-slate-600">
+                        {format(parseISO(log.filled_at), 'd MMM yyyy')}
+                        {!log.full_tank && <span className="ml-1 text-xs text-slate-400">(partial)</span>}
+                      </td>
+                      <td className="px-5 py-3 font-medium text-slate-900">{vehicleReg(log.vehicle_id)}</td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {log.odometer_km != null ? `${Number(log.odometer_km).toLocaleString()} km` : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-slate-600">{Number(log.litres).toFixed(1)} L</td>
+                      <td className="px-5 py-3 font-medium text-slate-900">{formatZAR(Number(log.cost))}</td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {formatZAR(Number(log.cost) / Number(log.litres))}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          onClick={() => handleDelete(log)}
+                          className="text-sm font-medium text-red-600 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Log fill-up">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field label="Vehicle">
+            <select
+              required
+              className={inputClass}
+              value={form.vehicle_id}
+              onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
+            >
+              <option value="">Select a vehicle…</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.registration_number}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Date">
+              <input
+                type="date"
+                className={inputClass}
+                value={form.filled_at}
+                onChange={(e) => setForm({ ...form, filled_at: e.target.value })}
+              />
+            </Field>
+            <Field label="Odometer (km)">
+              <input
+                className={inputClass}
+                value={form.odometer_km}
+                onChange={(e) => setForm({ ...form, odometer_km: e.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Litres">
+              <input
+                required
+                className={inputClass}
+                value={form.litres}
+                onChange={(e) => setForm({ ...form, litres: e.target.value })}
+              />
+            </Field>
+            <Field label="Cost (ZAR)">
+              <input
+                required
+                className={inputClass}
+                value={form.cost}
+                onChange={(e) => setForm({ ...form, cost: e.target.value })}
+              />
+            </Field>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.full_tank}
+              onChange={(e) => setForm({ ...form, full_tank: e.target.checked })}
+            />
+            Filled to a full tank
+          </label>
+          {formError && <ErrorState message={formError} />}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving…' : 'Log fill-up'}
             </Button>
           </div>
         </form>

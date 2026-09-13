@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useTable } from '../lib/useTable'
-import type { Staff, Vehicle, VehicleStatus } from '../lib/types'
+import type { ServiceCategory, ServiceRecord, Staff, Vehicle, VehicleStatus } from '../lib/types'
+import { formatZAR } from '../lib/lineItems'
 import {
   Badge,
   Button,
@@ -13,7 +14,41 @@ import {
   Modal,
   PageHeader,
 } from '../components/ui'
+import { format, parseISO } from 'date-fns'
 
+type Tab = 'vehicles' | 'service'
+
+export default function Fleet() {
+  const [tab, setTab] = useState<Tab>('vehicles')
+
+  return (
+    <div>
+      <PageHeader title="Fleet" subtitle="Vehicles, licensing, and service history" />
+
+      <div className="mb-4 flex gap-1 rounded-lg bg-slate-200/60 p-1 text-sm font-medium sm:w-fit">
+        <button
+          onClick={() => setTab('vehicles')}
+          className={`rounded-md px-4 py-1.5 ${tab === 'vehicles' ? 'bg-white shadow-sm' : 'text-slate-600'}`}
+        >
+          Vehicles
+        </button>
+        <button
+          onClick={() => setTab('service')}
+          className={`rounded-md px-4 py-1.5 ${tab === 'service' ? 'bg-white shadow-sm' : 'text-slate-600'}`}
+        >
+          Service history
+        </button>
+      </div>
+
+      {tab === 'vehicles' && <VehiclesTab />}
+      {tab === 'service' && <ServiceHistoryTab />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Vehicles
+// ---------------------------------------------------------------------------
 const STATUS_OPTIONS: VehicleStatus[] = ['active', 'in_maintenance', 'out_of_service', 'sold']
 
 const emptyForm = {
@@ -31,7 +66,7 @@ const emptyForm = {
   notes: '',
 }
 
-export default function Fleet() {
+function VehiclesTab() {
   const { rows: vehicles, loading, error, insert, update, remove } = useTable<Vehicle>(
     'vehicles',
     'registration_number',
@@ -111,11 +146,9 @@ export default function Fleet() {
 
   return (
     <div>
-      <PageHeader
-        title="Fleet"
-        subtitle="Vehicles, licensing, and service schedules"
-        action={<Button onClick={openCreate}>Add vehicle</Button>}
-      />
+      <div className="mb-4 flex justify-end">
+        <Button onClick={openCreate}>Add vehicle</Button>
+      </div>
 
       {loading && <LoadingState />}
       {error && <ErrorState message={error} />}
@@ -299,6 +332,214 @@ export default function Fleet() {
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? 'Saving…' : 'Save vehicle'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Service history
+// ---------------------------------------------------------------------------
+const SERVICE_CATEGORIES: ServiceCategory[] = ['service', 'repair', 'inspection', 'other']
+
+const emptyServiceForm = {
+  vehicle_id: '',
+  service_date: format(new Date(), 'yyyy-MM-dd'),
+  odometer_km: '',
+  category: 'service' as ServiceCategory,
+  workshop: '',
+  cost: '',
+  description: '',
+}
+
+function ServiceHistoryTab() {
+  const { rows: records, loading, error, insert, remove } = useTable<ServiceRecord>(
+    'service_records',
+    'service_date',
+    false,
+  )
+  const { rows: vehicles } = useTable<Vehicle>('vehicles', 'registration_number', true)
+
+  const [modalOpen, setModalOpen] = useState(false)
+  const [form, setForm] = useState(emptyServiceForm)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const vehicleReg = (id: string) => vehicles.find((v) => v.id === id)?.registration_number ?? '—'
+  const totalThisYear = records
+    .filter((r) => r.service_date.startsWith(format(new Date(), 'yyyy')))
+    .reduce((sum, r) => sum + Number(r.cost), 0)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!form.vehicle_id) {
+      setFormError('Select a vehicle.')
+      return
+    }
+    setSaving(true)
+    setFormError(null)
+    const result = await insert({
+      vehicle_id: form.vehicle_id,
+      service_date: form.service_date,
+      odometer_km: form.odometer_km ? Number(form.odometer_km) : null,
+      category: form.category,
+      workshop: form.workshop || null,
+      cost: form.cost ? Number(form.cost) : 0,
+      description: form.description || null,
+    } as Partial<ServiceRecord>)
+    setSaving(false)
+    if (result.error) {
+      setFormError(result.error)
+      return
+    }
+    setForm(emptyServiceForm)
+    setModalOpen(false)
+  }
+
+  async function handleDelete(record: ServiceRecord) {
+    if (!confirm('Delete this service record?')) return
+    await remove(record.id)
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-slate-600">
+          This year: <span className="font-semibold text-slate-900">{formatZAR(totalThisYear)}</span>
+        </p>
+        <Button onClick={() => setModalOpen(true)}>Log service/repair</Button>
+      </div>
+
+      {loading && <LoadingState />}
+      {error && <ErrorState message={error} />}
+
+      {!loading && !error && (
+        <Card>
+          {records.length === 0 ? (
+            <EmptyState message="No service or repair history logged yet." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3">Vehicle</th>
+                    <th className="px-5 py-3">Category</th>
+                    <th className="px-5 py-3">Workshop</th>
+                    <th className="px-5 py-3">Odometer</th>
+                    <th className="px-5 py-3">Cost</th>
+                    <th className="px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {records.map((r) => (
+                    <tr key={r.id}>
+                      <td className="px-5 py-3 text-slate-600">{format(parseISO(r.service_date), 'd MMM yyyy')}</td>
+                      <td className="px-5 py-3 font-medium text-slate-900">{vehicleReg(r.vehicle_id)}</td>
+                      <td className="px-5 py-3 capitalize text-slate-600">{r.category}</td>
+                      <td className="px-5 py-3 text-slate-600">{r.workshop || '—'}</td>
+                      <td className="px-5 py-3 text-slate-600">
+                        {r.odometer_km != null ? `${Number(r.odometer_km).toLocaleString()} km` : '—'}
+                      </td>
+                      <td className="px-5 py-3 font-medium text-slate-900">{formatZAR(Number(r.cost))}</td>
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          onClick={() => handleDelete(r)}
+                          className="text-sm font-medium text-red-600 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Log service/repair">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field label="Vehicle">
+            <select
+              required
+              className={inputClass}
+              value={form.vehicle_id}
+              onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
+            >
+              <option value="">Select a vehicle…</option>
+              {vehicles.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.registration_number}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Date">
+              <input
+                type="date"
+                className={inputClass}
+                value={form.service_date}
+                onChange={(e) => setForm({ ...form, service_date: e.target.value })}
+              />
+            </Field>
+            <Field label="Category">
+              <select
+                className={inputClass}
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value as ServiceCategory })}
+              >
+                {SERVICE_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Odometer (km)">
+              <input
+                className={inputClass}
+                value={form.odometer_km}
+                onChange={(e) => setForm({ ...form, odometer_km: e.target.value })}
+              />
+            </Field>
+            <Field label="Cost (ZAR)">
+              <input
+                className={inputClass}
+                value={form.cost}
+                onChange={(e) => setForm({ ...form, cost: e.target.value })}
+              />
+            </Field>
+          </div>
+          <Field label="Workshop">
+            <input
+              className={inputClass}
+              value={form.workshop}
+              onChange={(e) => setForm({ ...form, workshop: e.target.value })}
+            />
+          </Field>
+          <Field label="Description">
+            <textarea
+              className={inputClass}
+              rows={2}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </Field>
+          {formError && <ErrorState message={formError} />}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving…' : 'Log record'}
             </Button>
           </div>
         </form>

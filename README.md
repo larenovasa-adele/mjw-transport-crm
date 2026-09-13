@@ -1,7 +1,8 @@
 # MJW Transport CRM
 
-A production web app for MJW Transport (Marius Wiese) covering fleet/vehicles, staff, routes,
-a GPS tracker/trip log, clients, and finances (quotes, invoices, expenses).
+A production web app for MJW Transport (Marius Wiese) covering fleet/vehicles, tyres, service
+history, staff, routes, a GPS tracker/trip log, clients, and finances (quotes, invoices, expenses,
+fuel) with a Reports page for cost-per-km and profit.
 
 **Status:** freshly scaffolded, not yet deployed. It currently runs on sample/placeholder data —
 no real MJW Transport records have been entered. This is a separate project from LaRenova's CRM:
@@ -130,7 +131,40 @@ If MJW ends up on Sage Business Cloud Accounting and you want a live, no-CSV con
 that would mean requesting API access from Sage and building a proper sync — a bigger job than
 this CSV round-trip.
 
-## 9. Driver mobile login + dashboard photo
+## 9. Tyres, service history, fuel, and Reports
+
+Added after the initial build, based on research into what fleet/transport management systems
+typically track. Run `supabase/migrations/0003_tyres_service_fuel.sql` in the SQL Editor (after
+0001 and 0002) before using any of this — it adds the tables these features need, plus a
+`monthly_salary` column on Staff.
+
+- **Fleet → Service history** tab: work-order-style log of what was done to a vehicle, by whom,
+  and for how much — separate from the single "next service due" reminder date already on each
+  vehicle.
+- **Tyres** (its own nav item): one row per physical tyre — vehicle, position, brand/size, install
+  date/odometer, cost — with a "Log inspection" action for tread-depth readings over time and a
+  "Remove" action that records removal date/odometer/reason. Cost-per-km is calculated
+  automatically once a tyre has enough distance on it.
+- **Finances → Fuel** tab: litre + odometer based fill-up logging, separate from the old generic
+  "fuel" expense category. Log fill-ups here going forward, and mark "full tank" when applicable —
+  that's what makes an accurate cost-per-km possible. (The old Expenses "fuel" category still
+  works for a quick one-off entry, but won't feed into Reports' fuel figures — Reports will call
+  out if a fuel amount was logged that way instead, so it doesn't go unnoticed.)
+- **Staff**: each staff member now has an optional monthly salary field. MJW's drivers are paid a
+  fixed monthly wage (not per trip/km), so this feeds Reports as a single fleet-wide overhead line
+  rather than being split across vehicles.
+- **Dashboard**: an "Attention needed" card now surfaces vehicle license discs, service dates,
+  driver's licenses, and PDPs expiring within 30 days (previously tracked in the data but never
+  surfaced anywhere).
+- **Reports** (its own nav item): a fleet-wide profit & loss for this month or year-to-date,
+  cost-per-km and profit per vehicle, revenue by client, and route-linked profit. Every table notes
+  exactly what it includes and excludes — e.g. per-vehicle profit excludes driver wages (shown
+  separately, fleet-wide), and route profit only counts expenses specifically tagged to that route.
+  This is deliberately conservative rather than presenting a single confident-looking number built
+  on assumptions the data can't actually support yet (e.g. allocating a driver's salary across the
+  specific vehicles they drove, which isn't tracked).
+
+## 10. Driver mobile login + dashboard photo
 
 Drivers log in on their own phone (in the browser — no app to install) and get a simplified
 mobile page instead of the full CRM: their active trips, a "Start trip" / "End trip" button that
@@ -158,7 +192,7 @@ bar and typing in a full-CRM URL directly — every logged-in user still has ful
 (see the gaps list below). The driver page is a UI convenience, not a security boundary, until
 proper per-role permissions are added.
 
-## 10. Known gaps / suggested next steps
+## 11. Known gaps / suggested next steps
 
 - No per-role permissions yet (any logged-in user, including a driver, can read/write anything in
   the database directly — the driver mobile page is a UI convenience, not an access restriction).

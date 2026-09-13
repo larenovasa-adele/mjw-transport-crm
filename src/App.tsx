@@ -12,6 +12,8 @@ import Clients from './pages/Clients'
 import Finances from './pages/Finances'
 import Settings from './pages/Settings'
 import Driver from './pages/Driver'
+import Tyres from './pages/Tyres'
+import Reports from './pages/Reports'
 
 function LoadingScreen() {
   return <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">Loading…</div>
@@ -60,11 +62,13 @@ function AppRoutes() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/fleet" element={<Fleet />} />
+        <Route path="/tyres" element={<Tyres />} />
         <Route path="/staff" element={<Staff />} />
         <Route path="/routes" element={<RoutesPage />} />
         <Route path="/tracker" element={<Tracker />} />
         <Route path="/clients" element={<Clients />} />
         <Route path="/finances" element={<Finances />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

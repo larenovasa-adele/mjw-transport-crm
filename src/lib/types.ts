@@ -12,6 +12,8 @@ export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
 export type TelematicsProvider = 'none' | 'cartrack' | 'netstar' | 'mix_telematics' | 'other'
 export type TripStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled'
 export type ExpenseCategory = 'fuel' | 'maintenance' | 'tolls' | 'fines' | 'insurance' | 'other'
+export type ServiceCategory = 'service' | 'repair' | 'inspection' | 'other'
+export type TyreStatus = 'fitted' | 'removed' | 'scrapped'
 
 export interface Staff {
   id: string
@@ -26,6 +28,8 @@ export interface Staff {
   pdp_expiry: string | null
   hire_date: string | null
   notes: string | null
+  /** Fixed monthly wage, if this person is on salary (MJW's current model for all drivers). */
+  monthly_salary: number | null
   created_at: string
   updated_at: string
 }
@@ -183,5 +187,59 @@ export interface Expense {
   expense_date: string
   odometer_km: number | null
   receipt_reference: string | null
+  created_at: string
+}
+
+export interface ServiceRecord {
+  id: string
+  vehicle_id: string
+  service_date: string
+  odometer_km: number | null
+  category: ServiceCategory
+  description: string | null
+  workshop: string | null
+  cost: number
+  created_at: string
+}
+
+export interface Tyre {
+  id: string
+  vehicle_id: string
+  position: string
+  brand: string | null
+  size: string | null
+  serial_number: string | null
+  status: TyreStatus
+  install_date: string | null
+  install_odometer_km: number | null
+  cost: number | null
+  retread_count: number
+  removed_date: string | null
+  removed_odometer_km: number | null
+  removal_reason: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TyreInspection {
+  id: string
+  tyre_id: string
+  inspected_at: string
+  tread_depth_mm: number | null
+  pressure_kpa: number | null
+  notes: string | null
+  created_at: string
+}
+
+export interface FuelLog {
+  id: string
+  vehicle_id: string
+  filled_at: string
+  odometer_km: number | null
+  litres: number
+  cost: number
+  full_tank: boolean
+  notes: string | null
   created_at: string
 }

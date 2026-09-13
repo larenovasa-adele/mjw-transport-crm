@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import type { Invoice, Route, Vehicle } from '../lib/types'
+import type { Invoice, Route, Staff, Vehicle } from '../lib/types'
 import { Badge, Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/ui'
-import { format, isToday, parseISO } from 'date-fns'
+import { addDays, format, isToday, parseISO } from 'date-fns'
 
 interface Stats {
   activeVehicles: number
@@ -13,9 +13,19 @@ interface Stats {
   outstandingCount: number
 }
 
+interface Alert {
+  label: string
+  detail: string
+  due: string
+  href: string
+}
+
+const ALERT_WINDOW_DAYS = 30
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [upcomingRoutes, setUpcomingRoutes] = useState<Route[]>([])
+  const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -24,17 +34,22 @@ export default function Dashboard() {
       setLoading(true)
       setError(null)
 
-      const [{ data: vehicles, error: vErr }, { data: routes, error: rErr }, { data: invoices, error: iErr }] =
-        await Promise.all([
-          supabase.from('vehicles').select('*') as unknown as Promise<{ data: Vehicle[] | null; error: any }>,
-          supabase.from('routes').select('*').order('scheduled_date', { ascending: true }) as unknown as Promise<{
-            data: Route[] | null
-            error: any
-          }>,
-          supabase.from('invoices').select('*') as unknown as Promise<{ data: Invoice[] | null; error: any }>,
-        ])
+      const [
+        { data: vehicles, error: vErr },
+        { data: routes, error: rErr },
+        { data: invoices, error: iErr },
+        { data: staffList, error: sErr },
+      ] = await Promise.all([
+        supabase.from('vehicles').select('*') as unknown as Promise<{ data: Vehicle[] | null; error: any }>,
+        supabase.from('routes').select('*').order('scheduled_date', { ascending: true }) as unknown as Promise<{
+          data: Route[] | null
+          error: any
+        }>,
+        supabase.from('invoices').select('*') as unknown as Promise<{ data: Invoice[] | null; error: any }>,
+        supabase.from('staff').select('*') as unknown as Promise<{ data: Staff[] | null; error: any }>,
+      ])
 
-      const firstError = vErr ?? rErr ?? iErr
+      const firstError = vErr ?? rErr ?? iErr ?? sErr
       if (firstError) {
         setError(firstError.message)
         setLoading(false)
@@ -44,6 +59,7 @@ export default function Dashboard() {
       const allVehicles = vehicles ?? []
       const allRoutes = routes ?? []
       const allInvoices = invoices ?? []
+      const allStaff = staffList ?? []
 
       const outstanding = allInvoices.filter((inv) => inv.status === 'sent' || inv.status === 'overdue')
 
@@ -55,11 +71,51 @@ export default function Dashboard() {
         outstandingCount: outstanding.length,
       })
 
-      setUpcomingRoutes(
-        allRoutes
-          .filter((r) => r.status === 'scheduled' || r.status === 'in_progress')
-          .slice(0, 6),
-      )
+      setUpcomingRoutes(allRoutes.filter((r) => r.status === 'scheduled' || r.status === 'in_progress').slice(0, 6))
+
+      // ---- expiry/service alerts, next 30 days (including anything already overdue) ----
+      const cutoff = addDays(new Date(), ALERT_WINDOW_DAYS)
+      const dueSoon = (dateStr: string | null) => {
+        if (!dateStr) return false
+        const d = parseISO(dateStr)
+        return d <= cutoff
+      }
+      const fmt = (dateStr: string) => format(parseISO(dateStr), 'd MMM yyyy')
+
+      const found: Alert[] = []
+      for (const v of allVehicles) {
+        if (dueSoon(v.license_disc_expiry)) {
+          found.push({
+            label: v.registration_number,
+            detail: 'License disc expiry',
+            due: fmt(v.license_disc_expiry!),
+            href: '/fleet',
+          })
+        }
+        if (dueSoon(v.next_service_due)) {
+          found.push({
+            label: v.registration_number,
+            detail: 'Service due',
+            due: fmt(v.next_service_due!),
+            href: '/fleet',
+          })
+        }
+      }
+      for (const s of allStaff) {
+        if (dueSoon(s.drivers_license_expiry)) {
+          found.push({
+            label: s.full_name,
+            detail: "Driver's license expiry",
+            due: fmt(s.drivers_license_expiry!),
+            href: '/staff',
+          })
+        }
+        if (dueSoon(s.pdp_expiry)) {
+          found.push({ label: s.full_name, detail: 'PDP expiry', due: fmt(s.pdp_expiry!), href: '/staff' })
+        }
+      }
+      found.sort((a, b) => a.due.localeCompare(b.due))
+      setAlerts(found)
 
       setLoading(false)
     }
@@ -91,9 +147,32 @@ export default function Dashboard() {
             <StatCard label="Upcoming routes" value={String(upcomingRoutes.length)} href="/routes" />
           </div>
 
+          {alerts.length > 0 && (
+            <Card className="mt-6 border-amber-200 bg-amber-50">
+              <div className="border-b border-amber-200 px-5 py-4">
+                <h2 className="text-sm font-semibold text-amber-900">
+                  Attention needed — expiring or due within {ALERT_WINDOW_DAYS} days
+                </h2>
+              </div>
+              <ul className="divide-y divide-amber-200/70">
+                {alerts.map((a, i) => (
+                  <li key={i} className="px-5 py-3 text-sm">
+                    <Link to={a.href} className="flex items-center justify-between hover:underline">
+                      <span>
+                        <span className="font-medium text-amber-900">{a.label}</span>
+                        <span className="text-amber-700"> — {a.detail}</span>
+                      </span>
+                      <span className="text-amber-700">{a.due}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           <Card className="mt-6">
             <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="text-sm font-semibold text-slate-900">Upcoming &amp; active routes</h2>
+              <h2 className="text-sm font-semibold text-slate-900">Upcoming & active routes</h2>
             </div>
             {upcomingRoutes.length === 0 ? (
               <EmptyState message="No scheduled or in-progress routes yet." />
